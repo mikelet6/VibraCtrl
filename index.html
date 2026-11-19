@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Control BLE Multidispositiu</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#121212">
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; padding: 15px; background: #121212; color: white; margin: 0; }
+    .card { background: #1e1e1e; padding: 20px; border-radius: 16px; display: inline-block; width: 95%; max-width: 450px; box-shadow: 0 6px 15px rgba(0,0,0,0.6); box-sizing: border-box; }
+    
+    button { font-size: 15px; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all 0.2s ease; }
+    .btn-connect { background: #007bff; color: white; width: 100%; margin-bottom: 12px; font-size: 16px; }
+    .btn-stop { background: #dc3545; color: white; width: 100%; margin-top: 15px; font-size: 18px; padding: 15px; }
+    .btn-random { background: #17a2b8; color: white; width: 100%; margin-top: 10px; font-size: 16px; }
+    
+    .btn-random.active {
+      background: #117a8b;
+      box-shadow: 0 0 10px #17a2b8;
+      border: 2px solid #5bc0de;
+    }
+
+    .slider-container { margin: 20px 0; background: #2a2a2a; padding: 15px; border-radius: 12px; }
+    input[type=range] { 
+      -webkit-appearance: none; 
+      width: 100%; 
+      height: 12px; 
+      border-radius: 6px; 
+      background: #444; 
+      outline: none; 
+      margin: 15px 0 5px 0;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #28a745;
+      cursor: pointer;
+    }
+
+    .grid-patrons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+    .btn-patro { background: #333; color: #e0e0e0; border: 1px solid #444; position: relative; }
+    
+    .btn-patro.active {
+      background: #28a745 !important;
+      color: white !important;
+      border: 2px solid #5cdb95 !important;
+      box-shadow: 0 0 12px rgba(40, 167, 69, 0.8);
+      font-weight: bold;
+    }
+
+    .btn-patro.active::after {
+      content: "●";
+      position: absolute;
+      top: 4px;
+      right: 6px;
+      font-size: 10px;
+      color: #ffffff;
+    }
+
+    #status { margin-top: 15px; padding: 10px; border-radius: 8px; background: #333; font-size: 13px; word-break: break-word; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h2>Control Motor ESP32</h2>
+  <button class="btn-connect" onclick="connectarBLE()">1. Triar i Connectar Dispositiu</button>
+  
+  <div id="status">Estat: Desconnectat.</div>
+  
+  <div class="slider-container">
+    <label for="slider"><b>Velocitat Directa: <span id="val">128</span></b></label>
+    <input type="range" id="slider" min="0" max="255" value="128" oninput="actualitzarSlider(this.value)">
+  </div>
+
+  <h3>Patrons de Vibració</h3>
+  <div class="grid-patrons">
+    <button class="btn-patro" id="btn-P1" onclick="seleccionarPatro('P1', this)">1. Intensitat</button>
+    <button class="btn-patro" id="btn-P2" onclick="seleccionarPatro('P2', this)">2. Oh-Eh-Oh</button>
+    <button class="btn-patro" id="btn-P3" onclick="seleccionarPatro('P3', this)">3. Bzz-Bzz</button>
+    <button class="btn-patro" id="btn-P4" onclick="seleccionarPatro('P4', this)">4. Bzz Llarg</button>
+    <button class="btn-patro" id="btn-P5" onclick="seleccionarPatro('P5', this)">5. Pulsació</button>
+    <button class="btn-patro" id="btn-P6" onclick="seleccionarPatro('P6', this)">6. Fade Down</button>
+    <button class="btn-patro" id="btn-P7" onclick="seleccionarPatro('P7', this)">7. Fade Double</button>
+    <button class="btn-patro" id="btn-P8" onclick="seleccionarPatro('P8', this)">8. Up & Down</button>
+    <button class="btn-patro" id="btn-P9" onclick="seleccionarPatro('P9', this)">9. Pulse Up</button>
+  </div>
+
+  <button class="btn-random" id="btn-random" onclick="activarRandom()">🔀 Mode Aleatori</button>
+  <button class="btn-stop" onclick="pararTot()">⏹ PARAR MOTOR</button>
+</div>
+
+<script>
+  const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+  const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+  let caracteristicaBLE;
+  let dispositiuActual;
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js');
+  }
+
+  function mostrarEstat(text, esError = false) {
+    const el = document.getElementById('status');
+    el.innerText = text;
+    el.style.background = esError ? '#721c24' : '#155724';
+  }
+
+  function netejarSeleccioVisual() {
+    const botons = document.querySelectorAll('.btn-patro');
+    botons.forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-random').classList.remove('active');
+  }
+
+  async function connectarBLE() {
+    if (!navigator.bluetooth) {
+      mostrarEstat("ERROR: El teu navegador no suporta Web Bluetooth o falten permissos HTTPS.", true);
+      return;
+    }
+
+    try {
+      if (dispositiuActual && dispositiuActual.gatt.connected) {
+        dispositiuActual.gatt.disconnect();
+      }
+
+      mostrarEstat("Cercant mòduls disponibles...");
+      
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUID] }]
+      });
+
+      dispositiuActual = device;
+      const nomDispositiu = device.name || "Mòdul sense nom";
+
+      mostrarEstat("Connectant a '" + nomDispositiu + "'...");
+      
+      device.addEventListener('gattserverdisconnected', () => {
+        mostrarEstat("Desconnectat de '" + nomDispositiu + "'", true);
+        netejarSeleccioVisual();
+        caracteristicaBLE = null;
+      });
+
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      caracteristicaBLE = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+      netejarSeleccioVisual();
+      mostrarEstat("CONNECTAT A: " + nomDispositiu);
+    } catch (error) {
+      mostrarEstat("Error o cancel·lat: " + error.message, true);
+    }
+  }
+
+  async function enviarComanda(valor) {
+    if (!caracteristicaBLE) {
+      mostrarEstat("Primer tria un dispositiu amb el botó blau", true);
+      return;
+    }
+    try {
+      const encoder = new TextEncoder();
+      await caracteristicaBLE.writeValue(encoder.encode(valor.toString()));
+    } catch (error) {
+      mostrarEstat("Error enviant dades: " + error.message, true);
+    }
+  }
+
+  function seleccionarPatro(codiPatro, botoElement) {
+    netejarSeleccioVisual();
+    botoElement.classList.add('active');
+    enviarComanda(codiPatro);
+  }
+
+  function activarRandom() {
+    netejarSeleccioVisual();
+    document.getElementById('btn-random').classList.add('active');
+    enviarComanda('RANDOM');
+  }
+
+  function pararTot() {
+    netejarSeleccioVisual();
+    enviarComanda('STOP');
+  }
+
+  function actualitzarSlider(val) {
+    document.getElementById('val').innerText = val;
+    netejarSeleccioVisual();
+    enviarComanda(val);
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "Control Motor ESP32 BLE",
+  "short_name": "Motor BLE",
+  "description": "Controlador Bluetooth per a motors i patrons de vibració ESP32-C3",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
